@@ -10,6 +10,10 @@ from simple_crew import SimpleConstructionPlanner
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 # Configure Streamlit page
@@ -84,12 +88,154 @@ def display_project_metadata(metadata):
         st.metric("Duration (Days)", duration)
     
     with col3:
-        cost = metadata.get("total_estimated_cost", "$0")
+        cost = metadata.get("total_estimated_cost", "₹0")
         st.metric("Estimated Cost", cost)
     
     with col4:
         created_date = metadata.get("created_date", "").split()[0]
         st.metric("Created", created_date)
+
+
+def display_cost_breakdown(results):
+    """Display detailed cost breakdown in INR"""
+    if "cost_breakdown" in results:
+        cost_data = results["cost_breakdown"]
+        
+        st.subheader("💰 Cost Breakdown (INR)")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Total Cost", 
+                cost_data.get("total_cost", "₹0"),
+                help="Total project cost including all components"
+            )
+            st.metric(
+                "Cost per sq ft", 
+                cost_data.get("cost_per_sqft", "₹0"),
+                help="Base cost per square foot before location adjustment"
+            )
+        
+        with col2:
+            st.metric(
+                "Labor Cost", 
+                cost_data.get("labor_cost", "₹0"),
+                help=f"40% of total cost - {results.get('project_metadata', {}).get('quality', 'Standard')} quality"
+            )
+            st.metric(
+                "Material Cost", 
+                cost_data.get("material_cost", "₹0"),
+                help="50% of total cost - includes all construction materials"
+            )
+        
+        with col3:
+            st.metric(
+                "Equipment Cost", 
+                cost_data.get("equipment_cost", "₹0"),
+                help="10% of total cost - equipment rental and tools"
+            )
+            st.metric(
+                "Location Factor", 
+                f"{cost_data.get('location_factor', 1.0)}x",
+                help=f"Location multiplier - {results.get('project_metadata', {}).get('location', 'Tier 2')}"
+            )
+        
+        # Show area breakdown for transparency
+        st.markdown("**Area Calculation:**")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Ground Floor Area", 
+                f"{cost_data.get('ground_floor_area', 0)} sq ft",
+                help="Input area per floor"
+            )
+        
+        with col2:
+            st.metric(
+                "Effective Floors", 
+                cost_data.get("effective_floors", 1.0),
+                help="Floor scaling factor (1 + 0.9 × (floors - 1))"
+            )
+        
+        with col3:
+            st.metric(
+                "Total Built-up Area", 
+                f"{cost_data.get('total_builtup_area', 0)} sq ft",
+                help="Ground floor area × Effective floors"
+            )
+
+
+def display_duration_breakdown(results):
+    """Display detailed duration breakdown with factors"""
+    if "duration_breakdown" in results:
+        duration_data = results["duration_breakdown"]
+        
+        st.subheader("📅 Duration Breakdown")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Total Duration", f"{duration_data.get('total_days', 0)} days")
+            st.metric("Foundation Phase", f"{duration_data.get('foundation_days', 0)} days")
+        
+        with col2:
+            st.metric("Structural Phase", f"{duration_data.get('structure_days', 0)} days")
+            st.metric("Finishing Phase", f"{duration_data.get('finishing_days', 0)} days")
+        
+        # Show calculation factors
+        st.markdown("**Duration Calculation Factors:**")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                "Base Duration", 
+                f"{duration_data.get('base_duration', 0)} days",
+                help=f"Base timeline for {duration_data.get('building_type', 'Residential')} construction"
+            )
+        
+        with col2:
+            st.metric(
+                "Floor Factor", 
+                f"{duration_data.get('floor_factor', 1.0)}x",
+                help="Each additional floor adds 30% time"
+            )
+        
+        with col3:
+            st.metric(
+                "Area Factor", 
+                f"{duration_data.get('area_factor', 1.0)}x",
+                help="Area adjustment (clamped to realistic range)"
+            )
+        
+        # Duration per sq ft indicator
+        days_per_sqft = duration_data.get('days_per_sqft', 0)
+        if days_per_sqft > 0:
+            st.info(f"📊 Construction Speed: {days_per_sqft:.3f} days per square foot")
+        
+        # Add explanation
+        st.info("""
+        📋 **Duration Methodology**: 
+        Duration is estimated using phase-based construction modeling adjusted for floors and area, 
+        based on typical Indian residential and commercial project timelines.
+        - Base: 120 days (Residential) | 180 days (Commercial)
+        - Floor scaling: 30% per additional floor
+        - Area adjustment: 20% variation from 2,000 sq ft baseline
+        - Phase distribution: Foundation 20% | Structure 50% | Finishing 30%
+        """)
+
+
+def display_estimation_note():
+    """Display transparency note about estimation methodology"""
+    st.info("""
+    📋 **Cost Estimation Methodology**: 
+    Cost estimates are based on standard Indian construction benchmarks and rule-based calculations.
+    - Costs calculated using industry-standard rates per square foot
+    - Location factors account for regional price variations  
+    - Quality grades adjust material and finishing standards
+    - Labor: 40% | Materials: 50% | Equipment: 10%
+    """)
 
 
 def display_task_breakdown(task_breakdown):
@@ -141,22 +287,49 @@ def display_task_breakdown(task_breakdown):
     st.subheader("📝 Detailed Task List")
     
     for i, task in enumerate(tasks, 1):
-        with st.expander(f"Task {i}: {task.get('name', 'Unnamed Task')}"):
-            col1, col2 = st.columns(2)
+        with st.expander(f"Task {i}: {task.get('name', 'Unnamed Task')} ({task.get('estimated_duration_days', 0)} days)"):
+            # Task basic information
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 st.write(f"**ID:** {task.get('id', 'N/A')}")
-                st.write(f"**Category:** {task.get('category', 'N/A')}")
-                st.write(f"**Duration:** {task.get('estimated_duration_days', 0)} days")
+                st.write(f"**Category:** {task.get('category', 'N/A').title()}")
             
             with col2:
+                st.write(f"**Duration:** {task.get('estimated_duration_days', 0)} days")
                 dependencies = task.get('dependencies', [])
                 if dependencies:
                     st.write(f"**Dependencies:** {', '.join(dependencies)}")
                 else:
                     st.write("**Dependencies:** None")
             
-            st.write(f"**Description:** {task.get('description', 'No description available')}")
+            with col3:
+                # Add phase information based on category
+                category = task.get('category', '').lower()
+                phase_map = {
+                    'permits': 'Pre-Construction',
+                    'site_preparation': 'Pre-Construction', 
+                    'foundation': 'Foundation Phase',
+                    'structural': 'Structural Phase',
+                    'utilities': 'Structural Phase',
+                    'finishing': 'Finishing Phase'
+                }
+                phase = phase_map.get(category, 'General')
+                st.write(f"**Phase:** {phase}")
+            
+            # Enhanced description section
+            st.markdown("---")
+            st.write("**📋 Task Description:**")
+            description = task.get('description', 'No description available')
+            st.write(description)
+            
+            # Add task considerations
+            if category in ['foundation', 'structural']:
+                st.info("🔧 **Critical Task:** This task is on the critical path and may impact overall project timeline.")
+            elif category == 'permits':
+                st.info("📜 **Important:** Ensure all permits are approved before proceeding with construction.")
+            elif category == 'utilities':
+                st.info("⚡ **Coordination Required:** May require coordination with utility providers.")
 
 
 def display_resource_validation(validation_results):
@@ -276,12 +449,18 @@ def display_project_schedule(schedule_results):
         # Prepare data for Gantt chart
         gantt_data = []
         for task in schedule:
+            task_name = task.get('task_name', 'Unnamed')
+            duration = task.get('duration_days', 0)
+            # Include duration in task name for better visualization
+            display_name = f"{task_name} ({duration} days)"
+            
             gantt_data.append({
-                'Task': task.get('task_name', 'Unnamed'),
+                'Task': display_name,
                 'Start': task.get('start_day', 0),
                 'Finish': task.get('end_day', 0),
                 'Category': task.get('task_id', 'general'),
-                'Critical Path': 'Critical' if task.get('critical_path', False) else 'Regular'
+                'Critical Path': 'Critical' if task.get('critical_path', False) else 'Regular',
+                'Duration': duration
             })
         
         df_gantt = pd.DataFrame(gantt_data)
@@ -305,6 +484,24 @@ def display_project_schedule(schedule_results):
         )
         
         st.plotly_chart(fig, use_container_width=True)
+        
+        # Task summary table
+        st.subheader("📋 Task Summary Table")
+        
+        # Prepare summary data
+        summary_data = []
+        for task in schedule:
+            summary_data.append({
+                'Task Name': task.get('task_name', 'Unnamed'),
+                'Duration (days)': task.get('duration_days', 0),
+                'Start Day': task.get('start_day', 0),
+                'End Day': task.get('end_day', 0),
+                'Critical Path': 'Yes' if task.get('critical_path', False) else 'No',
+                'Dependencies': ', '.join(task.get('dependencies_completed', [])) if task.get('dependencies_completed') else 'None'
+            })
+        
+        df_summary = pd.DataFrame(summary_data)
+        st.dataframe(df_summary, use_container_width=True, hide_index=True)
     
     # Project phases
     phases = schedule_results.get("project_phases", [])
@@ -396,11 +593,67 @@ def main():
     else:
         default_goal = ""
     
-    construction_goal = st.text_input(
-        "Enter your construction goal:",
-        placeholder="e.g., Build a 2-story residential home with 3 bedrooms",
-        value=default_goal
-    )
+    st.subheader("📋 Project Parameters")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        area = st.number_input(
+            "Total Area (sq ft)", 
+            min_value=100, 
+            max_value=100000, 
+            value=2000, 
+            step=100,
+            help="Total built-up area in square feet"
+        )
+        
+        floors = st.number_input(
+            "Number of Floors", 
+            min_value=1, 
+            max_value=50, 
+            value=2, 
+            step=1,
+            help="Number of floors including ground floor"
+        )
+        
+        building_type = st.selectbox(
+            "Construction Type", 
+            ["Residential", "Commercial"],
+            help="Type of construction project"
+        )
+    
+    with col2:
+        quality = st.selectbox(
+            "Quality Grade", 
+            ["Basic", "Standard", "Premium"],
+            index=1,
+            help="Construction quality and finishing level"
+        )
+        
+        location = st.selectbox(
+            "Location Type", 
+            ["Metro", "Tier 2", "Rural"],
+            index=1,
+            help="Location category for cost calculation"
+        )
+        
+        construction_goal = st.text_input(
+            "Project Description (Optional):",
+            placeholder="e.g., 3-bedroom house with modern amenities",
+            help="Additional details about your project"
+        )
+    
+    # Create project parameters object
+    project_params = {
+        "area": area,
+        "floors": floors,
+        "building_type": building_type,
+        "quality": quality,
+        "location": location,
+        "description": construction_goal or f"{building_type} building - {area} sq ft, {floors} floors"
+    }
+    
+    st.markdown("---")
     
     col1, col2 = st.columns([1, 1])
     
@@ -417,9 +670,9 @@ def main():
         st.rerun()
     
     # Generate plan
-    if generate_button and construction_goal:
-        if not construction_goal.strip():
-            st.error("Please enter a construction goal!")
+    if generate_button:
+        if not area or not floors:
+            st.error("Please fill in all required project parameters!")
             return
         
         with st.spinner("🤖 AI Agents are working on your construction plan..."):
@@ -427,8 +680,8 @@ def main():
                 # Initialize the planner
                 planner = SimpleConstructionPlanner()
                 
-                # Execute planning workflow
-                results = planner.plan_construction_project(construction_goal)
+                # Execute planning workflow with project parameters
+                results = planner.plan_construction_project(project_params)
                 
                 # Store results in session state
                 st.session_state.planning_results = results
@@ -451,6 +704,15 @@ def main():
             st.header("📊 Project Overview")
             metadata = results.get("project_metadata", {})
             display_project_metadata(metadata)
+            
+            # Cost breakdown
+            display_cost_breakdown(results)
+            
+            # Duration breakdown
+            display_duration_breakdown(results)
+            
+            # Estimation methodology note
+            display_estimation_note()
             
             # Summary section
             summary = results.get("summary", {})
