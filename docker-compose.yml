@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      cache_from:
+        - construction-planner:latest
     ports:
       - "8501:8501"
     env_file:
